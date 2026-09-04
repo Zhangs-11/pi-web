@@ -7,7 +7,12 @@ import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
 import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMessageGroupAnchor, splitFinalAssistantBlocks, splitThinkingBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { MessageView, ThinkingBlock } from "./MessageView";
-import { ChatInput, type ChatInputHandle } from "./ChatInput";
+import {
+  ChatInput,
+  getUserMessageDraftImages,
+  getUserMessageText,
+  type ChatInputHandle,
+} from "./ChatInput";
 import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
@@ -249,11 +254,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
     onAgentEnd?.();
   }, [completionNotificationsEnabled, onAgentEnd]);
 
-  // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
-  const handleEditContent = useCallback((message: UserMessage) => {
-    chatInputRef?.current?.replaceMessage(message);
-  }, [chatInputRef]);
-
   const {
     loading, error, messages, entryIds, historyCursor, hasEarlierMessages, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
@@ -266,7 +266,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
     isNew,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, handleFork, handleEditAndSend, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
@@ -277,6 +277,30 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEditingEntryId(null);
+  }, [session?.id, newSessionDraftKey]);
+
+  useEffect(() => {
+    if (sessionBusy) setEditingEntryId(null);
+  }, [sessionBusy]);
+
+  const handleStartEdit = useCallback((entryId: string) => {
+    setEditingEntryId(entryId);
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingEntryId(null);
+  }, []);
+
+  const handleSubmitEdit = useCallback(async (entryId: string, message: UserMessage): Promise<boolean> => {
+    const images = getUserMessageDraftImages(message);
+    const submitted = await handleEditAndSend(entryId, getUserMessageText(message), images);
+    if (submitted) setEditingEntryId(null);
+    return submitted;
+  }, [handleEditAndSend]);
 
   useEffect(() => {
     if (
@@ -743,10 +767,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
 
               const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
-                const prevAssistantEntryId =
-                  msg.role === "user" && idx > 0 && messages[idx - 1].role === "assistant"
-                    ? entryIds[idx - 1]
-                    : undefined;
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
                 const keyPrefix = options.keyPrefix ?? "message";
@@ -778,9 +798,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, sessi
                     searchBlock={entryIds[idx] === pendingSearchScroll?.entryId ? searchBlock : undefined}
                     onFork={sessionBusy || isNew || (idx === 0 && msg.role === "user") ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
-                    onNavigate={sessionBusy ? undefined : handleNavigate}
-                    prevAssistantEntryId={sessionBusy ? undefined : prevAssistantEntryId}
-                    onEditContent={handleEditContent}
+                    editing={msg.role === "user" && editingEntryId === entryIds[idx]}
+                    onStartEdit={!sessionBusy && !isNew ? handleStartEdit : undefined}
+                    onCancelEdit={handleCancelEdit}
+                    onSubmitEdit={handleSubmitEdit}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}

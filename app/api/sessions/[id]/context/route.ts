@@ -9,7 +9,9 @@ export async function GET(
 ) {
   const { id } = await params;
   const url = new URL(req.url);
-  const leafId = url.searchParams.get("leafId") ?? undefined;
+  const leafId = url.searchParams.has("leafId")
+    ? url.searchParams.get("leafId") || null
+    : undefined;
   const deferThinking = url.searchParams.has("deferThinking");
   const deferToolResultImages = url.searchParams.has("deferMedia");
   // `tail` caps the ancestor chain returned (default 50); `before` rewinds the
@@ -30,7 +32,8 @@ export async function GET(
     const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(filePath!);
     // `before` is the oldest entry already on the client; fetch its ancestors
     // only (excludeLeaf) so prepending the page does not duplicate `before`.
-    const context = buildSessionContext(sm.getEntries() as never, before ?? leafId, {
+    const contextLeafId = before !== undefined ? before : leafId;
+    const context = buildSessionContext(sm.getEntries() as never, contextLeafId, {
       deferThinking,
       deferToolResultImages,
       tail,

@@ -574,6 +574,8 @@ export const zhTWLocale: LocalePlugin = {
     "i18n.largeMessageReveal": "訊息內容過大（{size}）。點選即可用純文字查看；為保持頁面流暢，已停用 Markdown 轉譯。",
     "i18n.loadingThinking": "正在載入思考內容...",
     "i18n.copyMessage": "複製訊息",
+    "i18n.editMessage": "編輯訊息",
+    "i18n.editMessageTitle": "編輯並重新傳送此訊息",
     "i18n.editFromHere": "從此處編輯",
     "i18n.editFromHereTitle": "從此處編輯，並在這個工作階段中建立分支",
     "i18n.newSession": "新增工作階段",

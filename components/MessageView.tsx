@@ -189,9 +189,10 @@ interface Props {
   searchBlock?: AssistantContentBlock;
   onFork?: (entryId: string) => void;
   forking?: boolean;
-  onNavigate?: (entryId: string) => void;
-  prevAssistantEntryId?: string;
-  onEditContent?: (message: UserMessage) => void;
+  editing?: boolean;
+  onStartEdit?: (entryId: string) => void;
+  onCancelEdit?: () => void;
+  onSubmitEdit?: (entryId: string, message: UserMessage) => Promise<boolean>;
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
@@ -250,9 +251,9 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, onOpenSession, entryId, searchBlock, onFork, forking, editing, onStartEdit, onCancelEdit, onSubmitEdit, showTimestamp, prevTimestamp, sessionId, writtenFiles }: Props) {
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
+    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} editing={editing} onStartEdit={onStartEdit} onCancelEdit={onCancelEdit} onSubmitEdit={onSubmitEdit} />;
   }
   if (message.role === "assistant") {
     return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} searchBlock={searchBlock} writtenFiles={writtenFiles} />;
@@ -283,24 +284,26 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.searchBlock === next.searchBlock
     && prev.onFork === next.onFork
     && prev.forking === next.forking
-    && prev.onNavigate === next.onNavigate
-    && prev.prevAssistantEntryId === next.prevAssistantEntryId
-    && prev.onEditContent === next.onEditContent
+    && prev.editing === next.editing
+    && prev.onStartEdit === next.onStartEdit
+    && prev.onCancelEdit === next.onCancelEdit
+    && prev.onSubmitEdit === next.onSubmitEdit
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
     && prev.sessionId === next.sessionId;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
+function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, editing, onStartEdit, onCancelEdit, onSubmitEdit }: {
   message: UserMessage;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
   entryId?: string;
   onFork?: (entryId: string) => void;
   forking?: boolean;
-  onNavigate?: (entryId: string) => void;
-  prevAssistantEntryId?: string;
-  onEditContent?: (message: UserMessage) => void;
+  editing?: boolean;
+  onStartEdit?: (entryId: string) => void;
+  onCancelEdit?: () => void;
+  onSubmitEdit?: (entryId: string, message: UserMessage) => Promise<boolean>;
 }) {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
@@ -332,7 +335,6 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const time = formatTime(message.timestamp);
   const canFork = !!entryId && !!onFork;
   const copyTarget = commandText ?? content;
-  const editTarget = commandText ? replaceUserMessageText(message, commandText) : message;
 
   const imageBlocksNode = imageBlocks.length > 0 && (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: content ? 8 : 0 }}>
@@ -360,7 +362,25 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       })}
     </div>
   );
-  const canNavigate = !!prevAssistantEntryId && !!onNavigate;
+  const editableText = commandText ?? content;
+  const [editValue, setEditValue] = useState(editableText);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const canEdit = !!entryId && !!onStartEdit && !!onSubmitEdit;
+  const canSubmitEdit = editValue.trim().length > 0 || imageBlocks.length > 0;
+
+  useEffect(() => {
+    if (editing) setEditValue(editableText);
+  }, [editableText, editing]);
+
+  const submitEdit = async () => {
+    if (!entryId || !onSubmitEdit || !canSubmitEdit || editSubmitting) return;
+    setEditSubmitting(true);
+    try {
+      await onSubmitEdit(entryId, replaceUserMessageText(message, editValue));
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
 
   const copyContent = () => {
     copyText(copyTarget).then(() => {
@@ -375,7 +395,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, maxWidth: "85%" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, width: editing ? "85%" : undefined, maxWidth: "85%" }}>
         <div
           style={{
             flex: 1,
@@ -388,11 +408,79 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
             lineHeight: 1.6,
             color: "var(--text)",
             wordBreak: "break-word",
-            maxHeight: USER_BUBBLE_MAX_HEIGHT,
+            maxHeight: editing ? "none" : USER_BUBBLE_MAX_HEIGHT,
             overflowY: "auto",
           }}
         >
-          {commandText ? (
+          {editing ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+              {imageBlocksNode}
+              <textarea
+                autoFocus
+                value={editValue}
+                onChange={(event) => setEditValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    onCancelEdit?.();
+                  } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    void submitEdit();
+                  }
+                }}
+                aria-label={t("i18n.editMessage")}
+                rows={3}
+                style={{
+                  width: "100%",
+                  minHeight: 72,
+                  maxHeight: 240,
+                  padding: 0,
+                  resize: "none",
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  color: "var(--text)",
+                  font: "inherit",
+                  lineHeight: 1.6,
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+                <button
+                  type="button"
+                  onClick={onCancelEdit}
+                  disabled={editSubmitting}
+                  style={{
+                    padding: "5px 10px",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    background: "var(--bg)",
+                    color: "var(--text-muted)",
+                    cursor: editSubmitting ? "not-allowed" : "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {t("i18n.cancel")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitEdit()}
+                  disabled={!canSubmitEdit || editSubmitting}
+                  style={{
+                    padding: "5px 10px",
+                    border: "none",
+                    borderRadius: 6,
+                    background: canSubmitEdit && !editSubmitting ? "var(--accent)" : "var(--bg-panel)",
+                    color: canSubmitEdit && !editSubmitting ? "#fff" : "var(--text-dim)",
+                    cursor: canSubmitEdit && !editSubmitting ? "pointer" : "not-allowed",
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {t("chat.send")}
+                </button>
+              </div>
+            </div>
+          ) : commandText ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
               {imageBlocksNode}
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
@@ -452,28 +540,29 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               )}
             </div>
           ) : (
-          <>
-          {imageBlocksNode}
-          {content && <SafeMarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>}
-          </>
+            <>
+              {imageBlocksNode}
+              {content && <SafeMarkdownBody className="markdown-user-message" cwd={cwd} onOpenFile={onOpenFile}>{content}</SafeMarkdownBody>}
+            </>
           )}
         </div>
 
       </div>
 
       {/* Bottom row: action buttons + timestamp */}
-      {(time || canFork || canNavigate || true) && (
+      {(time || canFork || canEdit || true) && (
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           gap: 6, marginTop: 3,
         }}>
-          <div style={{
-            display: "flex", gap: 3,
-            opacity: hovered ? 1 : 0,
-            pointerEvents: hovered ? "auto" : "none",
-            transition: "opacity 0.12s",
-          }}>
-            <button
+          {!editing && (
+            <div style={{
+              display: "flex", gap: 3,
+              opacity: hovered ? 1 : 0,
+              pointerEvents: hovered ? "auto" : "none",
+              transition: "opacity 0.12s",
+            }}>
+              <button
               onClick={copyContent}
                title={t("i18n.copyMessage")}
               style={{
@@ -502,45 +591,47 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               )}
                {copied ? t("i18n.copied") : t("i18n.copy")}
             </button>
-          </div>
-          {(canFork || canNavigate) && (
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditValue(editableText);
+                  onStartEdit!(entryId!);
+                }}
+                title={t("i18n.editMessageTitle")}
+                aria-label={t("i18n.editMessage")}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 26, height: 22, padding: 0,
+                  background: "none", border: "none",
+                  borderRadius: 5,
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  transition: "color 0.12s",
+                }}
+                onMouseEnter={(event) => { event.currentTarget.style.color = "var(--accent)"; }}
+                onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-dim)"; }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </button>
+              )}
+            </div>
+          )}
+          {canFork && !editing && (
             <div style={{
               display: "flex", gap: 3,
-              opacity: (hovered || forking) ? 1 : 0,
-              pointerEvents: (hovered || forking) ? "auto" : "none",
+              opacity: hovered || forking ? 1 : 0,
+              pointerEvents: hovered || forking ? "auto" : "none",
               transition: "opacity 0.12s",
             }}>
-              {canNavigate && (
-                <button
-                  onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(editTarget); }}
-                   title={t("i18n.editFromHereTitle")}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 8px", height: 22,
-                    background: "none", border: "none",
-                    borderRadius: 5,
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                    fontSize: 11, fontWeight: 400,
-                    whiteSpace: "nowrap",
-                    transition: "color 0.12s",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="15 10 20 15 15 20" />
-                    <path d="M4 4v7a4 4 0 0 0 4 4h12" />
-                  </svg>
-                   {t("i18n.editFromHere")}
-                </button>
-              )}
-              {canFork && (
-                <button
-                  onClick={() => { onFork!(entryId!); }}
-                  disabled={forking}
-                   title={forking ? t("i18n.creatingSession") : t("i18n.newSessionTitle")}
-                  style={{
+              <button
+                onClick={() => { onFork!(entryId!); }}
+                disabled={forking}
+                title={forking ? t("i18n.creatingSession") : t("i18n.newSessionTitle")}
+                style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "3px 8px", height: 22,
                     background: "none", border: "none",
@@ -551,18 +642,17 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                     whiteSpace: "nowrap",
                     transition: "color 0.12s",
                   }}
-                  onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
-                  onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
-                   {forking ? t("i18n.creating") : t("i18n.newSession")}
-                </button>
-              )}
+                onMouseEnter={(e) => { if (!forking) e.currentTarget.style.color = "var(--accent)"; }}
+                onMouseLeave={(e) => { if (!forking) e.currentTarget.style.color = "var(--text-dim)"; }}
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="6" y1="3" x2="6" y2="15" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
+                {forking ? t("i18n.creating") : t("i18n.newSession")}
+              </button>
             </div>
           )}
           {time && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{time}</span>}

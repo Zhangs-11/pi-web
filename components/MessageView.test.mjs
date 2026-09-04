@@ -228,6 +228,48 @@ test("keeps attached images when restoring a compact command for editing", () =>
   ]);
 });
 
+test("renders an inline edit action for the first user message", () => {
+  const html = renderMessage({
+    role: "user",
+    content: "original request",
+  }, {
+    entryId: "user-root",
+    onStartEdit() {},
+    async onSubmitEdit() { return true; },
+  });
+
+  assert.match(html, /aria-label="Edit message"/);
+  assert.ok(html.indexOf("Copy message") < html.indexOf("Edit message"));
+});
+
+test("renders the message text with Cancel and Send inside the inline editor", () => {
+  const html = renderMessage({
+    role: "user",
+    content: "original request",
+  }, {
+    entryId: "user-2",
+    editing: true,
+    onStartEdit() {},
+    onCancelEdit() {},
+    async onSubmitEdit() { return true; },
+  });
+
+  assert.match(html, /<textarea[^>]+aria-label="Edit message"/);
+  assert.match(html, />original request<\/textarea>/);
+  assert.match(html, />Cancel<\/button>/);
+  assert.match(html, />Send<\/button>/);
+  assert.doesNotMatch(html, /title="Copy message"/);
+});
+
+test("does not offer message editing without an idle edit handler", () => {
+  const html = renderMessage({
+    role: "user",
+    content: "running request",
+  }, { entryId: "user-running" });
+
+  assert.doesNotMatch(html, /aria-label="Edit message"/);
+});
+
 test("renders user-message images as buttons that open a larger preview", () => {
   const html = renderMessage({
     role: "user",

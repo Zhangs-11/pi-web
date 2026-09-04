@@ -574,6 +574,8 @@ export const enLocale: LocalePlugin = {
     "i18n.largeMessageReveal": "Message content is very large ({size}). Click to view as plain text — markdown rendering is disabled to keep the page responsive.",
     "i18n.loadingThinking": "Loading thinking...",
     "i18n.copyMessage": "Copy message",
+    "i18n.editMessage": "Edit message",
+    "i18n.editMessageTitle": "Edit and resend this message",
     "i18n.editFromHere": "Edit from here",
     "i18n.editFromHereTitle": "Edit from here — branches within this session",
     "i18n.newSession": "New session",

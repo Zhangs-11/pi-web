@@ -248,7 +248,6 @@ export interface ChatInputHandle {
 export interface AttachedImage {
   data: string;
   mimeType: string;
-  previewUrl: string;
 }
 
 type SelectedModel = { provider: string; modelId: string };
@@ -521,7 +520,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null, options?: { tail?: number; signal?: AbortSignal }) => {
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1" });
-      if (leafId) params.set("leafId", leafId);
+      if (leafId !== undefined) params.set("leafId", leafId ?? "");
       // Page upward: ask the server for the `tail` ancestors preceding `before`,
       // then prepend them. Omitting `before` fetches the most-recent `tail`.
       if (before) params.set("before", before);
@@ -1278,12 +1277,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [addNotice, cancelEventStreamGrace, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
-  const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+  const handleSend = useCallback(async (message: string, images?: AttachedImage[]): Promise<boolean> => {
     const trimmedMessage = message.trim();
-    if (!trimmedMessage && !images?.length) return;
+    if (!trimmedMessage && !images?.length) return false;
     if (agentRunningRef.current || bashRunningRef.current) {
       restoreSubmission(message, images, composerDraftKey);
-      return;
+      return false;
     }
     const isSlashCommandPrompt = !images?.length && trimmedMessage.startsWith("/");
 
@@ -1293,10 +1292,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const bashCmd = (isExcluded ? trimmedMessage.slice(2) : trimmedMessage.slice(1)).trim();
       if (!bashCmd) {
         restoreSubmission(message, images, composerDraftKey);
-        return;
+        return false;
       }
       await executeBashRef.current?.(bashCmd, isExcluded);
-      return;
+      return true;
     }
 
     const promptRunId = promptRunIdRef.current + 1;
@@ -1362,6 +1361,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (isSlashCommandPrompt && sentSessionId) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
       }
+      return true;
     } catch (e) {
       console.error("Failed to send message:", e);
       const definitivelyRejected = !promptRequestStarted || isPromptRejectedError(e);
@@ -1370,7 +1370,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // until server state confirms the run is idle.
       if (!definitivelyRejected && sentSessionId) {
         void waitForPromptSettlement(sentSessionId, promptRunId);
-        return;
+        return true;
       }
       rpcPromptPendingRef.current = false;
       setMessages((prev) => {
@@ -1387,13 +1387,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // its SSE connection until server state says the wrapper is idle.
       if (sentSessionId) {
         void reconcileAgentState(sentSessionId);
-        return;
+        return false;
       }
       agentRunningRef.current = false;
       closeEvents();
       setAgentRunning(false);
       setAgentPhase(null);
       dispatch({ type: "end" });
+      return false;
     }
   }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
 
@@ -1472,6 +1473,33 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setActiveLeafId(entryId);
     await loadContext(sid, entryId);
   }, [loadContext]);
+
+  const handleEditAndSend = useCallback(async (
+    entryId: string,
+    message: string,
+    images?: AttachedImage[],
+  ): Promise<boolean> => {
+    if (agentRunningRef.current || bashRunningRef.current) return false;
+    const sid = sessionIdRef.current;
+    if (!sid) return false;
+
+    try {
+      const result = await sendAgentCommand<{ cancelled?: boolean; leafId?: string | null }>(sid, {
+        type: "navigate_tree",
+        targetId: entryId,
+      });
+      if (result?.cancelled) return false;
+
+      const leafId = result?.leafId ?? null;
+      setActiveLeafId(leafId);
+      await loadContext(sid, leafId);
+      return await handleSend(message, images);
+    } catch (e) {
+      console.error("Failed to edit message:", e);
+      addNotice({ type: "error", message: e instanceof Error ? e.message : String(e) });
+      return false;
+    }
+  }, [addNotice, handleSend, loadContext]);
 
   const handleLeafChange = useCallback(async (leafId: string | null) => {
     if (bashRunningRef.current) return;
@@ -2041,7 +2069,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
     // Actions
-    handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
+    handleSend, handleAbort, handleFork, handleNavigate, handleEditAndSend, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,

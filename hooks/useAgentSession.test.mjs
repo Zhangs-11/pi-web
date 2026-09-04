@@ -51,7 +51,7 @@ test("keeps the session event stream open through the idle grace window", () => 
   assert.match(promptDoneSource, /scheduleEventStreamClose\(sid\)/);
   assert.match(sendSource, /const definitivelyRejected = !promptRequestStarted/);
   assert.match(sendSource, /if \(!definitivelyRejected && sentSessionId\) \{[\s\S]*?waitForPromptSettlement/);
-  assert.match(sendSource, /restoreSubmission\(message, images, composerDraftKey\);[\s\S]*?if \(sentSessionId\) \{[\s\S]*?reconcileAgentState\(sentSessionId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?closeEvents\(\)/);
+  assert.match(sendSource, /restoreSubmission\(message, images, composerDraftKey\);[\s\S]*?if \(sentSessionId\) \{[\s\S]*?reconcileAgentState\(sentSessionId\);[\s\S]*?return false;[\s\S]*?\}[\s\S]*?closeEvents\(\)/);
   assert.doesNotMatch(
     sendSource,
     /rpcPromptPendingRef\.current = false;\s*agentRunningRef\.current = false;\s*closeEvents\(\)/,
@@ -140,6 +140,20 @@ test("fresh sessions use the preference while persisted and live sessions restor
   assert.match(changeSource, /\(sid, \{ type: "set_tools", toolNames \}\)/);
   assert.match(changeSource, /sessionIdRef\.current = activeSessionId/);
   assert.doesNotMatch(loadToolsSource, /setPreferredToolPreset/);
+});
+
+test("editing navigates to the selected user entry before resending", () => {
+  const editSource = source.slice(
+    source.indexOf("  const handleEditAndSend = useCallback"),
+    source.indexOf("  const handleLeafChange = useCallback"),
+  );
+
+  assert.match(editSource, /agentRunningRef\.current \|\| bashRunningRef\.current/);
+  assert.match(editSource, /type: "navigate_tree",\s*targetId: entryId/);
+  assert.match(editSource, /const leafId = result\?\.leafId \?\? null/);
+  assert.ok(editSource.indexOf("await loadContext(sid, leafId)") < editSource.indexOf("await handleSend(message, images)"));
+  assert.match(editSource, /return false;[\s\S]*?addNotice/);
+  assert.match(chatWindowSource, /if \(sessionBusy\) setEditingEntryId\(null\)/);
 });
 
 test("existing-session prompts rely on the persisted tool selection", () => {
