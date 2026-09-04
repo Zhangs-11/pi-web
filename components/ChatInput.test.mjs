@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getTextBoundaryPosition, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
@@ -166,6 +166,24 @@ test("renders the shared field model selector as a disabled gray control", () =>
 test("caps an upward menu to the visible space above its anchor", () => {
   assert.equal(getUpwardMenuMaxHeight(343, 36), 299);
   assert.equal(getUpwardMenuMaxHeight(40, 36), 0);
+});
+
+test("finds Home and End destinations in single-line and multiline input", () => {
+  const text = "first line\nsecond line\nthird";
+
+  assert.equal(getTextBoundaryPosition(text, 17, "Home"), 11);
+  assert.equal(getTextBoundaryPosition(text, 17, "End"), 22);
+  assert.equal(getTextBoundaryPosition(text, 17, "Home", true), 0);
+  assert.equal(getTextBoundaryPosition(text, 17, "End", true), text.length);
+  assert.equal(getTextBoundaryPosition("single line", 4, "Home"), 0);
+  assert.equal(getTextBoundaryPosition("single line", 4, "End"), 11);
+});
+
+test("keeps a caret on its current line at newline boundaries", () => {
+  const text = "first\nsecond";
+
+  assert.equal(getTextBoundaryPosition(text, 5, "End"), 5);
+  assert.equal(getTextBoundaryPosition(text, 6, "Home"), 6);
 });
 
 test("compresses large images while preserving small images and GIFs", async () => {

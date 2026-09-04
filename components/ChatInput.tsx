@@ -101,6 +101,20 @@ const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const TEXT_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const ANCHORED_MENU_GAP = 8;
 
+type TextBoundaryKey = "Home" | "End";
+
+export function getTextBoundaryPosition(
+  text: string,
+  caret: number,
+  key: TextBoundaryKey,
+  wholeText = false,
+): number {
+  if (wholeText) return key === "Home" ? 0 : text.length;
+  if (key === "Home") return text.lastIndexOf("\n", Math.max(0, caret - 1)) + 1;
+  const lineEnd = text.indexOf("\n", caret);
+  return lineEnd === -1 ? text.length : lineEnd;
+}
+
 export function getUpwardMenuMaxHeight(menuBottom: number, visibleTop: number, gap = ANCHORED_MENU_GAP): number {
   return Math.max(0, Math.floor(menuBottom - visibleTop - gap));
 }
@@ -1145,6 +1159,33 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         return;
       }
 
+      if ((e.key === "Home" || e.key === "End") && !e.altKey && !isComposing) {
+        e.preventDefault();
+        const textarea = e.currentTarget;
+        const selectionStart = textarea.selectionStart;
+        const selectionEnd = textarea.selectionEnd;
+        const focus = textarea.selectionDirection === "backward" ? selectionStart : selectionEnd;
+        const anchor = textarea.selectionDirection === "backward" ? selectionEnd : selectionStart;
+        const target = getTextBoundaryPosition(
+          textarea.value,
+          focus,
+          e.key,
+          e.ctrlKey || e.metaKey,
+        );
+
+        if (e.shiftKey) {
+          textarea.setSelectionRange(
+            Math.min(anchor, target),
+            Math.max(anchor, target),
+            target < anchor ? "backward" : target > anchor ? "forward" : "none",
+          );
+        } else {
+          textarea.setSelectionRange(target, target);
+        }
+        updateAtQuery(textarea.value, target);
+        return;
+      }
+
       if (historyMenuOpen && !isComposing) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -1265,7 +1306,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         }
       }
     },
-    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
+    [isMobile, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, updateAtQuery, value]
   );
 
   const handleInput = useCallback(() => {
