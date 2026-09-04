@@ -68,6 +68,20 @@ export function listSessionFamilies(sessions: readonly SessionInfo[]): SessionFa
   return [...families.values()].sort((a, b) => b.latestModified.localeCompare(a.latestModified));
 }
 
+export function partitionSessionFamiliesByPinnedIds(
+  families: readonly SessionFamily[],
+  pinnedIds: ReadonlySet<string>,
+): { pinned: SessionFamily[]; unpinned: SessionFamily[] } {
+  const pinned: SessionFamily[] = [];
+  const unpinned: SessionFamily[] = [];
+
+  for (const family of families) {
+    (pinnedIds.has(family.root.id) ? pinned : unpinned).push(family);
+  }
+
+  return { pinned, unpinned };
+}
+
 export function getSessionFamily(
   sessions: readonly SessionInfo[],
   sessionId: string | null | undefined,

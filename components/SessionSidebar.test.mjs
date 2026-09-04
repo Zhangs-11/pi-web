@@ -128,3 +128,32 @@ test("hides subagent rows and aggregates their state into the main session row",
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
 });
+
+test("partitions current-project families into non-duplicated pinned and regular lists", () => {
+  assert.match(source, /partitionSessionFamiliesByPinnedIds\(\s*sessionFamilies,\s*pinnedSessionIds/);
+  assert.match(source, /pinnedFamilies\.map\(renderSessionFamily\)/);
+  assert.match(source, /getSessionListIndices\(\s*unpinnedFamilies\.length/);
+  assert.match(source, /const family = unpinnedFamilies\[index\]/);
+  assert.doesNotMatch(source, /unpinnedFamilies\.map\(renderSessionFamily\)/);
+  assert.match(source, /if \(pinnedFamilies\.length === 0\) setPinnedSettingsOpen\(false\)/);
+});
+
+test("shows a pin toggle with the existing hover-only session actions", () => {
+  assert.match(sessionItemSource, /\{hovered && !session\.transient && \(/);
+  assert.match(sessionItemSource, /onTogglePinned\?\.\(\)/);
+  assert.match(sessionItemSource, /aria-pressed=\{isPinned\}/);
+  assert.match(sessionItemSource, /sidebar\.unpinSession.*sidebar\.pinSession/);
+});
+
+test("offers a global default-collapse setting inside the pinned section", () => {
+  assert.match(source, /loadPinnedDefaultCollapsed/);
+  assert.match(source, /savePinnedDefaultCollapsed\(collapsed\)/);
+  assert.match(source, /checked=\{pinnedDefaultCollapsed\}/);
+  assert.match(source, /setPinnedCollapsed\(pinnedDefaultCollapsed\)/);
+  assert.match(source, /\[pinnedDefaultCollapsed, selectedProject\?\.key\]/);
+});
+
+test("drops pinned ids after their root sessions disappear", () => {
+  assert.match(source, /session\.relation\?\.kind !== "subagent" && !session\.transient/);
+  assert.match(source, /new Set\(\[\.\.\.previous\]\.filter\(\(id\) => validRootIds\.has\(id\)\)\)/);
+});

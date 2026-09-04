@@ -2,8 +2,14 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
-import { listSessionFamilies } from "@/lib/session-family";
+import { listSessionFamilies, partitionSessionFamiliesByPinnedIds } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import {
+  loadPinnedDefaultCollapsed,
+  loadPinnedSessionIds,
+  savePinnedDefaultCollapsed,
+  savePinnedSessionIds,
+} from "@/lib/pinned-sessions-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
@@ -13,6 +19,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { SessionSearch } from "./SessionSearch";
+import { ConfigSwitch } from "./SettingsUi";
 
 // Fixed row height for the session list. SessionItem renders at exactly this
 // height, so the list can be windowed (only the visible slice is mounted).
@@ -407,6 +414,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionSearchActive = sessionSearchOpen && Boolean(sessionSearchQuery.trim());
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
+  const [pinnedSessionIds, setPinnedSessionIds] = useState<Set<string>>(loadPinnedSessionIds);
+  const [pinnedDefaultCollapsed, setPinnedDefaultCollapsed] = useState(loadPinnedDefaultCollapsed);
+  const [pinnedCollapsed, setPinnedCollapsed] = useState(loadPinnedDefaultCollapsed);
+  const [pinnedSettingsOpen, setPinnedSettingsOpen] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
@@ -509,6 +520,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useEffect(() => {
     saveUnreadSessionIds(unreadSessionIds);
   }, [unreadSessionIds]);
+
+  useEffect(() => {
+    savePinnedSessionIds(pinnedSessionIds);
+  }, [pinnedSessionIds]);
+
+  useEffect(() => {
+    if (loading || error) return;
+    const validRootIds = new Set(
+      allSessions
+        .filter((session) => session.relation?.kind !== "subagent" && !session.transient)
+        .map((session) => session.id),
+    );
+    setPinnedSessionIds((previous) => {
+      const next = new Set([...previous].filter((id) => validRootIds.has(id)));
+      if (next.size === previous.size) return previous;
+      return next;
+    });
+  }, [allSessions, error, loading]);
 
   useEffect(() => {
     let stopped = false;
@@ -934,6 +963,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onSelectSession(s, false, entryId, blockIndex);
   }, [onSelectSession]);
 
+  const togglePinnedSession = useCallback((sessionId: string) => {
+    const pinning = !pinnedSessionIds.has(sessionId);
+    setPinnedSessionIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+    if (pinning) setPinnedCollapsed(false);
+  }, [pinnedSessionIds]);
+
+  const changePinnedDefaultCollapsed = useCallback((collapsed: boolean) => {
+    setPinnedDefaultCollapsed(collapsed);
+    setPinnedCollapsed(collapsed);
+    savePinnedDefaultCollapsed(collapsed);
+  }, []);
+
   const handleNewSession = useCallback(() => {
     if (!selectedCwd) return;
     // Generate a temporary UUID client-side — no backend call needed.
@@ -1003,12 +1049,69 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
+  const { pinned: pinnedFamilies, unpinned: unpinnedFamilies } = partitionSessionFamiliesByPinnedIds(
+    sessionFamilies,
+    pinnedSessionIds,
+  );
+  const pinnedSectionRef = useRef<HTMLElement>(null);
+  const unpinnedListRef = useRef<HTMLDivElement>(null);
+  const [unpinnedListOffset, setUnpinnedListOffset] = useState(0);
+
+  useEffect(() => {
+    setPinnedCollapsed(pinnedDefaultCollapsed);
+  }, [pinnedDefaultCollapsed, selectedProject?.key]);
+
+  useEffect(() => {
+    setPinnedSettingsOpen(false);
+  }, [selectedProject?.key]);
+
+  useEffect(() => {
+    if (pinnedFamilies.length === 0) setPinnedSettingsOpen(false);
+  }, [pinnedFamilies.length]);
+
+  useLayoutEffect(() => {
+    const list = listScrollRef.current;
+    const unpinned = unpinnedListRef.current;
+    if (!list || !unpinned) return;
+    const measure = () => {
+      const next = unpinned.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+      setUnpinnedListOffset((previous) => previous === next ? previous : next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (pinnedSectionRef.current) observer.observe(pinnedSectionRef.current);
+    return () => observer.disconnect();
+  }, [pinnedFamilies.length]);
+
+  const renderSessionFamily = (family: (typeof sessionFamilies)[number]) => {
+    const familySessions = [family.root, ...family.subagents];
+    const displaySession = family.latestModified === family.root.modified
+      ? family.root
+      : { ...family.root, modified: family.latestModified };
+    return (
+      <SessionItem
+        key={family.root.id}
+        session={displaySession}
+        isSelected={familySessions.some((session) => session.id === selectedSessionId)}
+        isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
+        isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+        isPinned={pinnedSessionIds.has(family.root.id)}
+        onTogglePinned={() => togglePinnedSession(family.root.id)}
+        onClick={() => handleSelectSessionFromList(family.root)}
+        onRenamed={loadSessions}
+        onDeleted={(id) => {
+          onSessionDeleted?.(id);
+          loadSessions();
+        }}
+      />
+    );
+  };
 
   const virtualIndices = getSessionListIndices(
-    sessionFamilies.length,
-    listScrollTop,
+    unpinnedFamilies.length,
+    Math.max(0, listScrollTop - unpinnedListOffset),
     listViewportH,
-    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
+    unpinnedFamilies.findIndex((family) => family.root.id === focusedSessionId),
   );
 
   return (
@@ -1693,44 +1796,114 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {t("sidebar.noSessions")}
           </div>
         )}
-        {sessionFamilies.length > 0 && (
-          <div
+        {pinnedFamilies.length > 0 && (
+          <section
+            ref={pinnedSectionRef}
+            aria-label={t("sidebar.pinnedSessions")}
             style={{
-              position: "relative",
-              height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
+              margin: "6px 8px 4px",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--bg-panel)",
+              overflow: "hidden",
             }}
           >
-            {virtualIndices.map((index) => {
-              const family = sessionFamilies[index];
-              const familySessions = [family.root, ...family.subagents];
-              const displaySession = family.latestModified === family.root.modified
-                ? family.root
-                : { ...family.root, modified: family.latestModified };
-              // Bubble blur after the input's save handler before unpinning the row.
-              return (
-                <div
-                  key={family.root.id}
-                  onFocus={() => setFocusedSessionId(family.root.id)}
-                  onBlur={() => setFocusedSessionId(null)}
-                  style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
+            <div style={{ display: "flex", alignItems: "center", minHeight: 34 }}>
+              <button
+                type="button"
+                onClick={() => setPinnedCollapsed((collapsed) => !collapsed)}
+                title={t(pinnedCollapsed ? "sidebar.expandPinnedSessions" : "sidebar.collapsePinnedSessions")}
+                aria-expanded={!pinnedCollapsed}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  flex: 1, minWidth: 0, alignSelf: "stretch",
+                  padding: "0 8px",
+                  background: "none", border: "none",
+                  color: "var(--text-muted)", cursor: "pointer",
+                  fontSize: 11, fontWeight: 600, textAlign: "left",
+                }}
+              >
+                <svg
+                  width="9" height="9" viewBox="0 0 10 10" fill="none"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ transform: pinnedCollapsed ? "none" : "rotate(90deg)", transition: "transform 0.15s", flexShrink: 0 }}
+                  aria-hidden="true"
                 >
-                  <SessionItem
-                    session={displaySession}
-                    isSelected={familySessions.some((session) => session.id === selectedSessionId)}
-                    isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
-                    isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
-                    onClick={() => handleSelectSessionFromList(family.root)}
-                    onRenamed={loadSessions}
-                    onDeleted={(id) => {
-                      onSessionDeleted?.(id);
-                      loadSessions();
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
+                  <polyline points="3 2 7 5 3 8" />
+                </svg>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style={{ color: "var(--accent)", flexShrink: 0 }}>
+                  <path d="M14 4V2H10v2L8 6v5l-3 3v2h6v6h2v-6h6v-2l-3-3V6l-2-2Z" />
+                </svg>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {t("sidebar.pinnedSessions")}
+                </span>
+                <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontWeight: 400 }}>
+                  {pinnedFamilies.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPinnedSettingsOpen((open) => !open)}
+                title={t("sidebar.pinnedSessionSettings")}
+                aria-label={t("sidebar.pinnedSessionSettings")}
+                aria-expanded={pinnedSettingsOpen}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 28, height: 28, padding: 0, marginRight: 3,
+                  background: pinnedSettingsOpen ? "var(--bg-selected)" : "none",
+                  border: "none", borderRadius: 6,
+                  color: pinnedSettingsOpen ? "var(--accent)" : "var(--text-dim)",
+                  cursor: "pointer", flexShrink: 0,
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.14.38.36.72.64 1 .3.28.7.42 1.1.4H21v4h-.09a1.7 1.7 0 0 0-1.51.6Z" />
+                </svg>
+              </button>
+            </div>
+            {pinnedSettingsOpen && (
+              <div
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "7px 8px",
+                  borderTop: "1px solid var(--border)",
+                  color: "var(--text-muted)", fontSize: 11,
+                }}
+              >
+                <span style={{ flex: 1 }}>{t("sidebar.collapsePinnedByDefault")}</span>
+                <ConfigSwitch
+                  checked={pinnedDefaultCollapsed}
+                  label={t("sidebar.collapsePinnedByDefault")}
+                  onChange={changePinnedDefaultCollapsed}
+                />
+              </div>
+            )}
+            {!pinnedCollapsed && pinnedFamilies.map(renderSessionFamily)}
+          </section>
         )}
+        <div
+          ref={unpinnedListRef}
+          style={{
+            position: "relative",
+            height: unpinnedFamilies.length * SESSION_LIST_ITEM_HEIGHT,
+          }}
+        >
+          {virtualIndices.map((index) => {
+            const family = unpinnedFamilies[index];
+            // Bubble blur after the input's save handler before unpinning the row.
+            return (
+              <div
+                key={family.root.id}
+                onFocus={() => setFocusedSessionId(family.root.id)}
+                onBlur={() => setFocusedSessionId(null)}
+                style={{ position: "absolute", top: index * SESSION_LIST_ITEM_HEIGHT, left: 0, right: 0 }}
+              >
+                {renderSessionFamily(family)}
+              </div>
+            );
+          })}
+        </div>
       </div>
       </SessionSearch>
 
@@ -1984,7 +2157,9 @@ function SessionItem({
   isSelected,
   isRunning,
   isUnread,
+  isPinned,
   onClick,
+  onTogglePinned,
   onRenamed,
   onDeleted,
   depth = 0,
@@ -1996,7 +2171,9 @@ function SessionItem({
   isSelected: boolean;
   isRunning?: boolean;
   isUnread?: boolean;
+  isPinned?: boolean;
   onClick: () => void;
+  onTogglePinned?: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
   depth?: number;
@@ -2201,7 +2378,7 @@ function SessionItem({
               <path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
             </svg>
           )}
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
             <div
               style={{
                 display: "flex",
@@ -2268,6 +2445,36 @@ function SessionItem({
           {/* Action buttons — shown on hover */}
           {hovered && !session.transient && (
             <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onTogglePinned?.();
+                }}
+                title={t(isPinned ? "sidebar.unpinSession" : "sidebar.pinSession")}
+                aria-pressed={isPinned}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, padding: 0,
+                  background: "var(--bg-hover)", border: "1px solid var(--border)",
+                  borderRadius: 7, color: isPinned ? "var(--accent)" : "var(--text-muted)",
+                  cursor: "pointer", flexShrink: 0,
+                  transition: "background 0.12s, color 0.12s, border-color 0.12s",
+                }}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.background = "var(--bg-selected)";
+                  event.currentTarget.style.color = "var(--accent)";
+                  event.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.background = "var(--bg-hover)";
+                  event.currentTarget.style.color = isPinned ? "var(--accent)" : "var(--text-muted)";
+                  event.currentTarget.style.borderColor = "var(--border)";
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill={isPinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M14 4V2H10v2L8 6v5l-3 3v2h6v6h2v-6h6v-2l-3-3V6l-2-2Z" />
+                </svg>
+              </button>
               <button
                 onClick={startRename}
                 title={t("sidebar.rename")}
