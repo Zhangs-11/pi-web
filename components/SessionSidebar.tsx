@@ -4,6 +4,14 @@ import { useEffect, useLayoutEffect, useState, useCallback, useMemo, useRef, typ
 import type { SessionInfo } from "@/lib/types";
 import { listSessionFamilies } from "@/lib/session-family";
 import { loadExplorerOpen, saveExplorerOpen } from "@/lib/file-explorer-state";
+import {
+  loadSessionOrders,
+  moveSessionId,
+  orderSessionIds,
+  saveSessionOrders,
+  withProjectSessionOrder,
+  type SessionOrders,
+} from "@/lib/session-order-state";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { skillExpansionToCommand } from "@/lib/slash-display";
 import { getProjectActivity, getRecentProjects, sessionsForProject } from "@/lib/project-groups";
@@ -407,6 +415,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const sessionSearchActive = sessionSearchOpen && Boolean(sessionSearchQuery.trim());
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
+  const [sessionOrders, setSessionOrders] = useState<SessionOrders>({});
+  const [draggedSessionId, setDraggedSessionId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
+  const draggedSessionIdRef = useRef<string | null>(null);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => loadUnreadSessionIds());
@@ -502,6 +514,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // preference after hydration so a collapsed explorer stays collapsed on reload.
   useEffect(() => {
     setExplorerOpen(loadExplorerOpen());
+    setSessionOrders(loadSessionOrders());
   }, []);
 
   // Persist unread markers so they survive a browser refresh before the user
@@ -944,6 +957,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
+  const persistSessionOrder = useCallback((projectKey: string, ids: readonly string[]) => {
+    setSessionOrders((previous) => {
+      const next = withProjectSessionOrder(previous, projectKey, ids);
+      saveSessionOrders(next);
+      return next;
+    });
+  }, []);
+
   const recentProjects = getRecentProjects(allSessions);
   const showProjectFilter = recentProjects.length > 8;
   const visibleProjects = projectFilter.trim()
@@ -1003,12 +1024,87 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       : null);
 
   const sessionFamilies = listSessionFamilies(filteredSessions);
+  const selectedProjectKey = selectedProject?.key;
+  const storedSessionOrder = selectedProjectKey ? sessionOrders[selectedProjectKey] : undefined;
+  const orderedSessionIds = orderSessionIds(
+    sessionFamilies.map((family) => family.root.id),
+    storedSessionOrder,
+  );
+  const sessionFamiliesById = new Map(
+    sessionFamilies.map((family) => [family.root.id, family]),
+  );
+  const orderedSessionFamilies = orderedSessionIds
+    .map((id) => sessionFamiliesById.get(id))
+    .filter((family) => family !== undefined);
+  const persistentFamilyIds = sessionFamilies
+    .filter((family) => !family.root.transient)
+    .map((family) => family.root.id);
+
+  useEffect(() => {
+    if (!selectedProjectKey || !storedSessionOrder || loading || error) return;
+    const reconciled = orderSessionIds(persistentFamilyIds, storedSessionOrder);
+    if (
+      reconciled.length === storedSessionOrder.length
+      && reconciled.every((id, index) => id === storedSessionOrder[index])
+    ) return;
+    persistSessionOrder(selectedProjectKey, reconciled);
+  }, [error, loading, persistSessionOrder, persistentFamilyIds, selectedProjectKey, storedSessionOrder]);
+
+  const clearSessionDrag = useCallback(() => {
+    draggedSessionIdRef.current = null;
+    setDraggedSessionId(null);
+    setDropTarget(null);
+  }, []);
+
+  const handleSessionDragStart = useCallback((event: React.DragEvent<HTMLDivElement>, sessionId: string) => {
+    draggedSessionIdRef.current = sessionId;
+    setDraggedSessionId(sessionId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", "");
+  }, []);
+
+  const handleSessionDragOver = useCallback((event: React.DragEvent<HTMLDivElement>, targetId: string) => {
+    const sourceId = draggedSessionIdRef.current;
+    if (!sourceId || sourceId === targetId) {
+      setDropTarget(null);
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    setDropTarget((previous) => (
+      previous?.id === targetId && previous.position === position
+        ? previous
+        : { id: targetId, position }
+    ));
+  }, []);
+
+  const handleSessionDrop = useCallback((event: React.DragEvent<HTMLDivElement>, targetId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const sourceId = draggedSessionIdRef.current;
+    if (!selectedProjectKey || !sourceId || sourceId === targetId) {
+      clearSessionDrag();
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    const currentIds = orderedSessionFamilies
+      .filter((family) => !family.root.transient)
+      .map((family) => family.root.id);
+    persistSessionOrder(
+      selectedProjectKey,
+      moveSessionId(currentIds, sourceId, targetId, position),
+    );
+    clearSessionDrag();
+  }, [clearSessionDrag, orderedSessionFamilies, persistSessionOrder, selectedProjectKey]);
 
   const virtualIndices = getSessionListIndices(
-    sessionFamilies.length,
+    orderedSessionFamilies.length,
     listScrollTop,
     listViewportH,
-    sessionFamilies.findIndex((family) => family.root.id === focusedSessionId),
+    orderedSessionFamilies.findIndex((family) => family.root.id === (draggedSessionId ?? focusedSessionId)),
   );
 
   return (
@@ -1688,25 +1784,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {error}
           </div>
         )}
-        {!loading && !error && sessionFamilies.length === 0 && (
+        {!loading && !error && orderedSessionFamilies.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             {t("sidebar.noSessions")}
           </div>
         )}
-        {sessionFamilies.length > 0 && (
+        {orderedSessionFamilies.length > 0 && (
           <div
             style={{
               position: "relative",
-              height: sessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
+              height: orderedSessionFamilies.length * SESSION_LIST_ITEM_HEIGHT,
             }}
           >
             {virtualIndices.map((index) => {
-              const family = sessionFamilies[index];
+              const family = orderedSessionFamilies[index];
               const familySessions = [family.root, ...family.subagents];
               const displaySession = family.latestModified === family.root.modified
                 ? family.root
                 : { ...family.root, modified: family.latestModified };
-              // Bubble blur after the input's save handler before unpinning the row.
+              // Bubble blur after the input's save handler before discarding the row.
               return (
                 <div
                   key={family.root.id}
@@ -1719,7 +1815,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                     isSelected={familySessions.some((session) => session.id === selectedSessionId)}
                     isRunning={familySessions.some((session) => runningSessionIds.has(session.id))}
                     isUnread={familySessions.some((session) => unreadSessionIds.has(session.id))}
+                    isDragging={draggedSessionId === family.root.id}
+                    dropPosition={dropTarget?.id === family.root.id ? dropTarget.position : null}
                     onClick={() => handleSelectSessionFromList(family.root)}
+                    onDragStart={(event) => handleSessionDragStart(event, family.root.id)}
+                    onDragOver={(event) => handleSessionDragOver(event, family.root.id)}
+                    onDrop={(event) => handleSessionDrop(event, family.root.id)}
+                    onDragEnd={clearSessionDrag}
                     onRenamed={loadSessions}
                     onDeleted={(id) => {
                       onSessionDeleted?.(id);
@@ -1984,7 +2086,13 @@ function SessionItem({
   isSelected,
   isRunning,
   isUnread,
+  isDragging,
+  dropPosition,
   onClick,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
   onRenamed,
   onDeleted,
   depth = 0,
@@ -1996,7 +2104,13 @@ function SessionItem({
   isSelected: boolean;
   isRunning?: boolean;
   isUnread?: boolean;
+  isDragging?: boolean;
+  dropPosition?: "before" | "after" | null;
   onClick: () => void;
+  onDragStart?: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragOver?: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDrop?: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragEnd?: () => void;
   onRenamed?: () => void;
   onDeleted?: (id: string) => void;
   depth?: number;
@@ -2011,6 +2125,7 @@ function SessionItem({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dragBlockedRef = useRef(false);
 
   // Select the whole name once the rename input is mounted (startRename's
   // immediate setTimeout can fire before the input exists).
@@ -2101,10 +2216,29 @@ function SessionItem({
   }, [onRenamed, session.cwd, session.id, session.name, session.path]);
 
   // Fixed-height outer wrapper — content swaps in place so the list never reflows
+  const draggable = !session.transient && !confirmDelete && !renaming && !deleting;
   return (
     <div
+      draggable={draggable}
       onClick={confirmDelete || renaming ? undefined : onClick}
       onContextMenu={confirmDelete || renaming ? undefined : handleContextMenu}
+      onMouseDownCapture={(event) => {
+        dragBlockedRef.current = Boolean((event.target as HTMLElement).closest("button, input"));
+      }}
+      onMouseUpCapture={() => { dragBlockedRef.current = false; }}
+      onDragStart={draggable ? (event) => {
+        if (dragBlockedRef.current) {
+          event.preventDefault();
+          return;
+        }
+        onDragStart?.(event);
+      } : undefined}
+      onDragOver={draggable ? onDragOver : undefined}
+      onDrop={draggable ? onDrop : undefined}
+      onDragEnd={() => {
+        dragBlockedRef.current = false;
+        onDragEnd?.();
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); }}
       style={{
@@ -2113,15 +2247,18 @@ function SessionItem({
         alignItems: "center",
         paddingLeft: depth > 0 ? depth * 12 + 14 : 14,
         paddingRight: 8,
-        cursor: confirmDelete || renaming ? "default" : "pointer",
+        cursor: confirmDelete || renaming ? "default" : draggable ? (isDragging ? "grabbing" : "grab") : "pointer",
         background: confirmDelete
           ? "rgba(239,68,68,0.06)"
           : isSelected ? "var(--bg-selected)" : hovered ? "var(--bg-hover)" : "transparent",
         borderLeft: confirmDelete
           ? "2px solid #ef4444"
           : isSelected ? "2px solid var(--accent)" : "2px solid transparent",
-        transition: "background 0.1s",
-        opacity: deleting ? 0.5 : 1,
+        boxShadow: dropPosition === "before"
+          ? "inset 0 2px var(--accent)"
+          : dropPosition === "after" ? "inset 0 -2px var(--accent)" : "none",
+        transition: "background 0.1s, opacity 0.1s, box-shadow 0.1s",
+        opacity: deleting ? 0.5 : isDragging ? 0.45 : 1,
         gap: 6,
         overflow: "hidden",
       }}

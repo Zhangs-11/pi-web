@@ -128,3 +128,22 @@ test("hides subagent rows and aggregates their state into the main session row",
   assert.match(source, /familySessions\.some\(\(session\) => runningSessionIds\.has\(session\.id\)\)/);
   assert.doesNotMatch(source, /function SessionTreeItem/);
 });
+
+test("persists manual ordering per project while moving whole session families", () => {
+  assert.match(source, /const storedSessionOrder = selectedProjectKey \? sessionOrders\[selectedProjectKey\]/);
+  assert.match(source, /getSessionListIndices\(\s*orderedSessionFamilies\.length/);
+  assert.match(source, /family\.root\.id === \(draggedSessionId \?\? focusedSessionId\)/);
+  assert.match(source, /const family = orderedSessionFamilies\[index\]/);
+  assert.match(source, /moveSessionId\(currentIds, sourceId, targetId, position\)/);
+  assert.match(source, /persistSessionOrder\(\s*selectedProjectKey/);
+  assert.match(source, /filter\(\(family\) => !family\.root\.transient\)/);
+});
+
+test("uses native row dragging without hijacking rename or delete controls", () => {
+  assert.match(sessionItemSource, /draggable=\{draggable\}/);
+  assert.match(sessionItemSource, /dragBlockedRef\.current = Boolean\(\(event\.target as HTMLElement\)\.closest\("button, input"\)\)/);
+  assert.match(sessionItemSource, /if \(dragBlockedRef\.current\) \{\s*event\.preventDefault\(\)/);
+  assert.match(sessionItemSource, /onDragOver=\{draggable \? onDragOver : undefined\}/);
+  assert.match(sessionItemSource, /boxShadow: dropPosition === "before"/);
+  assert.match(sessionItemSource, /opacity: deleting \? 0\.5 : isDragging \? 0\.45 : 1/);
+});
