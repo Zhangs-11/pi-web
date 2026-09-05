@@ -40,3 +40,35 @@ test("workspace restoration remains inside the cross-project branch", () => {
     /if \(currentProject !== newProject\) \{[\s\S]*?restoreWorkspaceContext\(newProject\);[\s\S]*?\}/,
   );
 });
+
+test("an unsent new-session draft is parked before session navigation and restored by New", () => {
+  const selectSource = callbackBody("handleSelectSession", "handleNewSession");
+  const newSource = callbackBody("handleNewSession", "hydrateSelectedSession");
+
+  const parkIndex = selectSource.indexOf(
+    "rekeyDraft(activeDraftKey, parkedNewSessionDraftKey(activeDraftCwd))",
+  );
+  const deactivateIndex = selectSource.indexOf("activeNewSessionDraftKeyRef.current = null");
+  const restoreIndex = newSource.indexOf("rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey)");
+  const activateIndex = newSource.indexOf("activeNewSessionDraftKeyRef.current = draftKey");
+
+  assert.notEqual(parkIndex, -1);
+  assert.notEqual(deactivateIndex, -1);
+  assert.notEqual(restoreIndex, -1);
+  assert.notEqual(activateIndex, -1);
+  assert.ok(parkIndex < deactivateIndex);
+  assert.ok(restoreIndex < activateIndex);
+});
+
+test("workspace changes park and restore the matching new-session draft", () => {
+  const cwdSource = callbackBody("handleCwdChange", "handleSelectSession");
+
+  assert.match(
+    cwdSource,
+    /rekeyDraft\(previousDraftKey, parkedNewSessionDraftKey\(currentFreshCwd\)\)/,
+  );
+  assert.match(
+    cwdSource,
+    /rekeyDraft\(parkedNewSessionDraftKey\(cwd\), draftKey\)/,
+  );
+});
