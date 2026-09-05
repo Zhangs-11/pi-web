@@ -3,16 +3,28 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import { useTheme, type ThemePreference } from "@/hooks/useTheme";
+import {
+  CHAT_CONTENT_WIDTH_MAX,
+  CHAT_CONTENT_WIDTH_MIN,
+  CHAT_CONTENT_FONT_SIZE_MAX,
+  CHAT_CONTENT_FONT_SIZE_MIN,
+  useChatAppearance,
+} from "@/hooks/useChatAppearance";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ShellToolSettingsResponse } from "@/lib/api-types";
 import {
   setLastSettingsSection,
   type SettingsSection,
 } from "@/lib/settings-navigation";
+import {
+  isThinkingExpandedByDefault,
+  setThinkingExpandedByDefault,
+} from "@/lib/thinking-expansion-preference";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { PluginsConfig } from "./PluginsConfig";
 import { ConfigSwitch } from "./SettingsUi";
+import { ThinkingIcon } from "./ThinkingIcon";
 
 interface Props {
   cwd: string | null;
@@ -56,9 +68,15 @@ function ThemeIcon({ preference }: { preference: ThemePreference }) {
 function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionId" | "onSessionReloaded">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
   const { preference, setThemePreference } = useTheme();
+  const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const [shellSettings, setShellSettings] = useState<ShellToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
+
+  useEffect(() => {
+    setThinkingExpanded(isThinkingExpandedByDefault());
+  }, []);
   const themeOptions: { id: ThemePreference; label: string }[] = [
     { id: "light", label: t("settings.themeLight") },
     { id: "dark", label: t("settings.themeDark") },
@@ -106,9 +124,26 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
     <div className="settings-general">
       <h2 className="settings-general-title">{t("settings.general")}</h2>
 
+      <section className="settings-general-section settings-thinking-option">
+        <h3 className="settings-general-heading">{t("settings.thinkingExpandedDefault")}</h3>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={thinkingExpanded}
+          aria-label={t("settings.thinkingExpandedDefault")}
+          title={t("settings.thinkingExpandedDefault")}
+          className="settings-thinking-toggle"
+          onClick={() => {
+            setThinkingExpandedByDefault(!thinkingExpanded);
+            setThinkingExpanded(!thinkingExpanded);
+          }}
+        >
+          <ThinkingIcon active={thinkingExpanded} size={20} />
+        </button>
+      </section>
+
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>
-        <p className="settings-general-description">{t("settings.appearanceDescription")}</p>
         <div role="radiogroup" aria-label={t("settings.appearance")} className="settings-theme-options">
           {themeOptions.map((option) => {
             const selected = preference === option.id;
@@ -126,6 +161,37 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
               </button>
             );
           })}
+        </div>
+        <div className="settings-chat-width-option">
+          <div className="settings-chat-width-header">
+            <label htmlFor="settings-chat-content-width">{t("settings.chatContentWidth")}</label>
+            <output htmlFor="settings-chat-content-width">{chatContentWidth}px</output>
+          </div>
+          <p className="settings-chat-width-description">{t("settings.chatContentWidthDescription")}</p>
+          <input
+            id="settings-chat-content-width"
+            type="range"
+            min={CHAT_CONTENT_WIDTH_MIN}
+            max={CHAT_CONTENT_WIDTH_MAX}
+            step={10}
+            value={chatContentWidth}
+            onChange={(event) => setChatContentWidth(Number(event.target.value))}
+          />
+        </div>
+        <div className="settings-chat-width-option">
+          <div className="settings-chat-width-header">
+            <label htmlFor="settings-chat-content-font-size">{t("settings.chatContentFontSize")}</label>
+            <output htmlFor="settings-chat-content-font-size">{fontSize}px</output>
+          </div>
+          <input
+            id="settings-chat-content-font-size"
+            type="range"
+            min={CHAT_CONTENT_FONT_SIZE_MIN}
+            max={CHAT_CONTENT_FONT_SIZE_MAX}
+            step={1}
+            value={fontSize}
+            onChange={(event) => setFontSize(Number(event.target.value))}
+          />
         </div>
       </section>
 
@@ -148,7 +214,6 @@ function GeneralSettings({ sessionId, onSessionReloaded }: Pick<Props, "sessionI
 
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("common.language")}</h3>
-        <p className="settings-general-description">{t("settings.languageDescription")}</p>
         <div role="radiogroup" aria-label={t("common.language")} className="settings-language-options">
           {supportedLocales.map((plugin) => {
             const selected = locale === plugin.id;

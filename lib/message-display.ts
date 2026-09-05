@@ -4,6 +4,10 @@ interface DisplayOptions {
   isStreaming?: boolean;
 }
 
+export function getThinkingPreview(thinking: string): string {
+  return thinking.trimStart().match(/^[^\r\n]{0,240}/u)?.[0].trimEnd() ?? "";
+}
+
 export function isMessageGroupAnchor(message: { role?: AgentMessage["role"]; customType?: string }): boolean {
   return message.role === "user"
     || (message.role === "custom" && message.customType === "compaction");
