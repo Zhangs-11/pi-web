@@ -342,8 +342,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     : undefined;
   const searchHistoryRef = useRef({ entryIds, historyCursor, hasEarlierMessages });
   searchHistoryRef.current = { entryIds, historyCursor, hasEarlierMessages };
-  const scrollHistoryRef = useRef({ messages, entryIds, historyCursor });
-  scrollHistoryRef.current = { messages, entryIds, historyCursor };
 
   useLayoutEffect(() => {
     const sessionId = session?.id;
@@ -357,24 +355,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         return;
       }
       const viewportTop = container.getBoundingClientRect().top;
-      const userEntryIds = new Set(scrollHistoryRef.current.messages.flatMap((message, index) => (
-        message.role === "user" ? [scrollHistoryRef.current.entryIds[index]] : []
-      )));
       const candidates = Array.from(content.children).flatMap((element) => {
         if (!(element instanceof HTMLElement) || !element.dataset.entryId) return [];
         const rect = element.getBoundingClientRect();
         return [{ entryId: element.dataset.entryId, top: rect.top, bottom: rect.bottom }];
       });
-      const stableCandidates = candidates.filter((candidate) => userEntryIds.has(candidate.entryId));
-      const anchor = findChatScrollAnchor(
-        stableCandidates.length > 0 ? stableCandidates : candidates,
-        viewportTop,
-      );
+      const anchor = findChatScrollAnchor(candidates, viewportTop);
       if (!anchor) return;
       onScrollPositionChange(sessionId, {
         atBottom: false,
         ...anchor,
-        oldestEntryId: scrollHistoryRef.current.historyCursor,
+        oldestEntryId: searchHistoryRef.current.historyCursor,
       });
     };
   }, [loading, onScrollPositionChange, scrollContainerRef, session?.id]);
@@ -429,7 +420,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     };
 
     void locate();
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      // A branch change cancels restoration and must reveal the new context.
+      setPendingScrollRestore(null);
+    };
   }, [activeLeafId, loadContext, loading, pendingScrollRestore, scrollToBottom, searchTarget, session?.id]);
 
   useLayoutEffect(() => {
