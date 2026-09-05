@@ -116,7 +116,8 @@ export function resolveLocalFileHref(
   }
 
   if (lowerHref.startsWith("file:")) {
-    candidate = fileUrlToPath(normalizedHref);
+    // Decode only the parsed pathname so encoded delimiters stay in the filename.
+    candidate = fileUrlToPath(cleanHref);
     candidateKind = candidate ? "absolute" : null;
   } else if (/^[a-zA-Z]:\//.test(normalizedHref)) {
     candidate = normalizedHref;
