@@ -517,7 +517,7 @@ export function AppShell() {
   // from handleCwdChange once the outgoing context has been reset. The session
   // is looked up against the live list so a deleted or drifted session falls
   // back to the default welcome page instead of erroring.
-  const restoreWorkspaceContext = useCallback((projectKey: string) => {
+  const restoreWorkspaceContext = useCallback((projectKey: string, cwd: string) => {
     const token = ++workspaceRestoreTokenRef.current;
     const lastOpenSessionId = getLastOpenSession(projectKey);
     if (!lastOpenSessionId) return;
@@ -538,6 +538,13 @@ export function AppShell() {
           clearLastOpen(projectKey);
           return;
         }
+        // Keep the temporary composer's draft in its cwd, even when the
+        // remembered session belongs to another worktree of this project.
+        const activeDraftKey = activeNewSessionDraftKeyRef.current;
+        if (activeDraftKey) {
+          rekeyDraft(activeDraftKey, parkedNewSessionDraftKey(cwd));
+        }
+        activeNewSessionDraftKeyRef.current = null;
         // Selecting the session must remount the chat with the session
         // present: useAgentSession loads content in a mount-only effect, so
         // the null-session welcome mount from the switch would never load
@@ -619,7 +626,7 @@ export function AppShell() {
       setRightPanelOpen(false);
       // Restore the workspace we switched to: its last open session, or keep
       // the default welcome page when none is remembered.
-      restoreWorkspaceContext(newProject);
+      restoreWorkspaceContext(newProject, cwd);
     }
     router.replace("/", { scroll: false });
   }, [activeCwd, invalidateWorkspaceRestore, newSessionCwd, router, selectedSession, restoreWorkspaceContext]);
