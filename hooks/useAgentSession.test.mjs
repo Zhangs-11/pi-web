@@ -526,3 +526,23 @@ test("keeps a detached viewport in place when streaming completes", () => {
   assert.doesNotMatch(scrollEffectSource, /\|\|/);
   assert.match(source, /addEventListener\("scroll", handleScrollPositionChange/);
 });
+
+test("the bottom affordance resumes live following without preserving prompt-anchor space", () => {
+  const jumpSource = source.slice(
+    source.indexOf("const jumpToBottom = useCallback"),
+    source.indexOf("const currentModel"),
+  );
+  const scrollSource = source.slice(
+    source.indexOf("const handleScrollPositionChange = useCallback"),
+    source.indexOf("// Load session on mount"),
+  );
+
+  assert.match(scrollSource, /setShowScrollToBottom\(!isScrollAtTail\([\s\S]*?CHAT_SCROLL_REATTACH_TOLERANCE/);
+  assert.match(jumpSource, /isNearBottomRef\.current = true/);
+  assert.match(jumpSource, /setPromptAnchorActive\(false\)/);
+  assert.doesNotMatch(jumpSource, /setShowScrollToBottom\(false\)/);
+  assert.match(jumpSource, /requestAnimationFrame\(\(\) => scrollToBottom\(behavior\)\)/);
+  assert.match(chatWindowSource, /className="chat-scroll-to-bottom"/);
+  assert.match(chatWindowSource, /data-visible=\{showScrollToBottom && !pendingScrollRestore\}/);
+  assert.match(chatWindowSource, /prefers-reduced-motion: reduce/);
+});

@@ -288,7 +288,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
-    loadContext, activeLeafId, scrollToBottom, scrollToMessage,
+    loadContext, activeLeafId, scrollToBottom, jumpToBottom, scrollToMessage,
+    showScrollToBottom,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd: wrappedOnAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onSessionStatsPanelOpen,
@@ -1234,6 +1235,20 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             onRevealHistory={revealHistoryForMinimap}
           />
         )}
+        <button
+          type="button"
+          className="chat-scroll-to-bottom"
+          data-visible={showScrollToBottom && !pendingScrollRestore}
+          aria-label={t("chat.scrollToBottom")}
+          title={t("chat.scrollToBottom")}
+          aria-hidden={!showScrollToBottom || Boolean(pendingScrollRestore)}
+          tabIndex={showScrollToBottom && !pendingScrollRestore ? 0 : -1}
+          onClick={() => jumpToBottom(window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth")}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
         </>}
       </div>
 

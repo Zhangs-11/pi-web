@@ -469,6 +469,50 @@ pre, code {
   --chat-font-size-offset: calc(var(--chat-content-font-size, 14px) - 14px);
 }
 
+.chat-scroll-to-bottom {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  z-index: 30;
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.14);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 6px) scale(0.96);
+  transition: opacity 140ms ease, transform 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.chat-scroll-to-bottom[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.chat-scroll-to-bottom:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.chat-scroll-to-bottom:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-scroll-to-bottom {
+    transition: none;
+  }
+}
+
 .markdown-body {
   min-width: 0;
   max-width: 100%;

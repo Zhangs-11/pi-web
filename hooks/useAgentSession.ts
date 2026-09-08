@@ -26,6 +26,7 @@ import {
   CHAT_SCROLL_REATTACH_TOLERANCE,
   CHAT_SCROLL_TAIL_TOLERANCE,
   getLiveFollowAttached,
+  isScrollAtTail,
 } from "@/lib/chat-lazy-load";
 import {
   INITIAL_STREAMING_STATE,
@@ -341,6 +342,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
   const isNearBottomRef = useRef(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const previousScrollTopRef = useRef(0);
   const liveFollowFrameRef = useRef<number | null>(null);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
@@ -397,6 +399,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     container.scrollTo({ top: container.scrollHeight, behavior });
     previousScrollTopRef.current = container.scrollTop;
   }, []);
+
+  const jumpToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    isNearBottomRef.current = true;
+    setPromptAnchorActive(false);
+    requestAnimationFrame(() => scrollToBottom(behavior));
+  }, [scrollToBottom]);
 
   const currentModel = currentModelOverride ?? data?.context.model ?? pendingModel ?? null;
   const displayModel = isNew ? (newSessionModel ?? newSessionDefaultModel) : currentModel;
@@ -1882,6 +1890,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           : CHAT_SCROLL_TAIL_TOLERANCE,
       );
       isNearBottomRef.current = isAttached;
+      setShowScrollToBottom(!isScrollAtTail(
+        scrollTop,
+        clientHeight,
+        scrollHeight,
+        CHAT_SCROLL_REATTACH_TOLERANCE,
+      ));
       previousScrollTopRef.current = scrollTop;
       if (!wasAttached && isAttached && isAgentRunning) {
         scrollToBottom("auto");
@@ -2079,6 +2093,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentPhase,
     isNew,
     promptAnchorActive,
+    showScrollToBottom,
     // Refs
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
@@ -2089,7 +2104,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleBuiltinSlashCommand,
     setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
-    scrollToBottom, scrollUserMsgToTop, scrollToMessage,
+    scrollToBottom, jumpToBottom, scrollUserMsgToTop, scrollToMessage,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
     // Subscriptions
