@@ -11,7 +11,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canClearBuiltinCommandInput, canRestoreUserMessage, canRunBuiltinSlashCommandWhileStreaming, compressImageFile, filterModelOptions, getListContinuationForEnter, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages, isExactSlashCommand, modelSupportsImageInput, shouldCompressImageFile } = await jiti.import("./ChatInput.tsx");
 const { ModelSelector } = await jiti.import("./ModelSelector.tsx");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("@/lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("@/hooks/useI18n");
@@ -87,6 +87,18 @@ test("shows the follow-up shortcut in the button tooltip", () => {
 
   assert.match(html, /title="Queue this message after the agent finishes \(Alt\/Option\+Enter\)"/);
   assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
+});
+
+test("generates markdown list continuation for Enter", () => {
+  assert.equal(getListContinuationForEnter("1. first item"), "\n2. ");
+  assert.equal(getListContinuationForEnter("   3. nested"), "\n   4. ");
+  assert.equal(getListContinuationForEnter("- first"), "\n- ");
+  assert.equal(getListContinuationForEnter("* [x] todo"), "\n* [ ] ");
+  assert.equal(getListContinuationForEnter("> quote"), "\n> ");
+
+  assert.equal(getListContinuationForEnter("1. "), "\n");
+  assert.equal(getListContinuationForEnter("- [ ] "), "\n");
+  assert.equal(getListContinuationForEnter("random text"), null);
 });
 
 test("renders the upstream model error", () => {

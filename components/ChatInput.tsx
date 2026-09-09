@@ -108,6 +108,41 @@ export function getUpwardMenuMaxHeight(menuBottom: number, visibleTop: number, g
   return Math.max(0, Math.floor(menuBottom - visibleTop - gap));
 }
 
+export function getListContinuationForEnter(lineText: string): string | null {
+  const line = lineText.replace(/\r/g, "").trimEnd();
+  if (!line) return null;
+
+  const orderedMatch = /^(\s*)(\d+)\.\s*(.*)$/.exec(line);
+  if (orderedMatch) {
+    const [, indent, indexStr, content] = orderedMatch;
+    if (!content.trim()) return "\n";
+    return `\n${indent}${Number.parseInt(indexStr, 10) + 1}. `;
+  }
+
+  const taskMatch = /^(\s*)([-+*])\s+\[[xX ]\]\s*(.*)$/.exec(line);
+  if (taskMatch) {
+    const [, indent, marker, content] = taskMatch;
+    if (!content.trim()) return "\n";
+    return `\n${indent}${marker} [ ] `;
+  }
+
+  const bulletMatch = /^(\s*)([-+*])\s*(.*)$/.exec(line);
+  if (bulletMatch) {
+    const [, indent, marker, content] = bulletMatch;
+    if (!content.trim()) return "\n";
+    return `\n${indent}${marker} `;
+  }
+
+  const blockquoteMatch = /^(\s*)>\s*(.*)$/.exec(line);
+  if (blockquoteMatch) {
+    const [, indent, content] = blockquoteMatch;
+    if (!content.trim()) return "\n";
+    return `\n${indent}> `;
+  }
+
+  return null;
+}
+
 function getVisibleTopBoundary(element: HTMLElement): number {
   let visibleTop = window.visualViewport?.offsetTop ?? 0;
 
@@ -1277,6 +1312,39 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         e.preventDefault();
         onAbort();
         return;
+      }
+
+      if (
+        e.key === "Enter" &&
+        !isComposing &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        const ta = e.currentTarget as HTMLTextAreaElement | null;
+        const start = ta?.selectionStart ?? null;
+        const end = ta?.selectionEnd ?? null;
+        if (ta && start !== null && end !== null && start === end) {
+          const lineStart = Math.max(0, (ta.value.lastIndexOf("\n", start - 1) + 1));
+          const lineText = ta.value.slice(lineStart, start);
+          const continuation = getListContinuationForEnter(lineText);
+          if (continuation !== null) {
+            e.preventDefault();
+            const nextValue = `${ta.value.slice(0, start)}${continuation}${ta.value.slice(end)}`;
+            valueRef.current = nextValue;
+            setValue(nextValue);
+            setAtQuery(null);
+            const nextCursor = start + continuation.length;
+            requestAnimationFrame(() => {
+              if (!ta) return;
+              ta.focus();
+              ta.setSelectionRange(nextCursor, nextCursor);
+              ta.style.height = "auto";
+              ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+            });
+            return;
+          }
+        }
       }
 
       if (sendShortcut) {
