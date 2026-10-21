@@ -946,7 +946,7 @@ function AssistantMessageView({
         {(message.usage || turnDurationMs !== undefined) && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
             {[
-              message.usage ? formatUsage(message.usage) : null,
+              message.usage ? formatUsage(message.usage, t) : null,
               turnDurationMs !== undefined ? t("chat.turnDuration", { time: formatTurnDuration(turnDurationMs) }) : null,
             ].filter(Boolean).join(" \u00b7 ")}
           </div>
@@ -2225,12 +2225,12 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}): string {
+}, t: (key: string, params?: Record<string, string | number>) => string): string {
   const parts = [];
-  if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
-  if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
-  if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
-  if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
+  if (usage.input) parts.push(t("chat.usageInput", { count: usage.input.toLocaleString() }));
+  if (usage.output) parts.push(t("chat.usageOutput", { count: usage.output.toLocaleString() }));
+  if (usage.cacheRead) parts.push(t("chat.usageCacheRead", { count: usage.cacheRead.toLocaleString() }));
+  if (usage.cacheWrite) parts.push(t("chat.usageCacheWrite", { count: usage.cacheWrite.toLocaleString() }));
   if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
   return parts.join(" · ");
 }
