@@ -1324,7 +1324,7 @@ export const zhTWLocale: LocalePlugin = {
     "models.oauthOpenLoginPageEnd": "。",
     "models.oauthValuePlaceholder": "輸入內容…",
     "models.oauthDeviceCode": "開啟驗證頁面，輸入下方的代碼：",
-    "models.addHeader": "新增請求標頭",
+    "models.addHeader": "新增 Header",
     "models.displayNamePlaceholder": "顯示名稱",
     "models.discoveryAdded": "已新增",
     "models.discoveryShowing": "顯示前 {shown} 個，共 {total} 個",

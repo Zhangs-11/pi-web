@@ -1324,7 +1324,7 @@ export const zhCNLocale: LocalePlugin = {
     "models.oauthOpenLoginPageEnd": "。",
     "models.oauthValuePlaceholder": "输入内容…",
     "models.oauthDeviceCode": "打开验证页面，输入下面的代码：",
-    "models.addHeader": "添加请求头",
+    "models.addHeader": "添加 Header",
     "models.displayNamePlaceholder": "显示名称",
     "models.discoveryAdded": "已添加",
     "models.discoveryShowing": "显示前 {shown} 个，共 {total} 个",
